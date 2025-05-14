@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/sparfenyuk-mcp-telegram-badge.png)](https://mseep.ai/app/sparfenyuk-mcp-telegram)
+
 # Telegram MCP server
 
 - [Telegram MCP server](#telegram-mcp-server)
