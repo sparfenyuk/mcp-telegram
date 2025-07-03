@@ -91,7 +91,7 @@ Before you can use the server, you need to connect to the Telegram API.
 
 ### Claude Desktop Configuration
 
-Configure Claude Desktop to recognize the Exa MCP server.
+Configure Claude Desktop to recognize the Telegram MCP server.
 
 1. Open the Claude Desktop configuration file:
    - in MacOS, the configuration file is located at `~/Library/Application Support/Claude/claude_desktop_config.json`
@@ -106,11 +106,10 @@ Configure Claude Desktop to recognize the Exa MCP server.
     {
       "mcpServers": {
         "mcp-telegram": {
-            "command": "mcp-server",
-            "env": {
-              "TELEGRAM_API_ID": "<your-api-id>",
-              "TELEGRAM_API_HASH": "<your-api-hash>",
-            },
+          "command": "mcp-telegram",
+          "env": {
+            "TELEGRAM_API_ID": "<your-api-id>",
+            "TELEGRAM_API_HASH": "<your-api-hash>"
           }
         }
       }
