@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import logging
+import re
 import sys
 import typing as t
 from functools import singledispatch
+
+import httpx
 
 from mcp.types import (
     EmbeddedResource,
@@ -155,3 +158,85 @@ async def list_messages(
                 response.append(TextContent(type="text", text=message.text))
 
     return response
+
+
+### FetchMessageLink ###
+
+
+class FetchMessageLink(ToolArgs):
+    """
+    Fetch content from a URL found in a Telegram message.
+
+    This tool safely retrieves web content from links that appear in Telegram messages.
+    It validates that the URL actually came from the specified message before fetching,
+    providing security against arbitrary URL access.
+
+    Particularly useful for reading Telegraph articles and other web content shared
+    in Telegram channels without triggering web_fetch security restrictions.
+    """
+
+    dialog_id: int
+    message_id: int
+    url: str
+
+
+@tool_runner.register
+async def fetch_message_link(
+    args: FetchMessageLink,
+) -> t.Sequence[TextContent | ImageContent | EmbeddedResource]:
+    client: TelegramClient
+    logger.info("method[FetchMessageLink] args[%s]", args)
+
+    # Step 1: Verify URL comes from the specified message (security check)
+    async with create_client() as client:
+        message = await client.get_messages(args.dialog_id, ids=args.message_id)
+
+        if not message:
+            raise ValueError(f"Message {args.message_id} not found in dialog {args.dialog_id}")
+
+        if not message.text:
+            raise ValueError(f"Message {args.message_id} has no text content")
+
+        if args.url not in message.text:
+            raise ValueError(
+                f"URL '{args.url}' not found in message {args.message_id}. "
+                f"Security check failed: URL must be from a verified Telegram message."
+            )
+
+    # Step 2: Fetch URL content
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as http_client:
+        try:
+            response = await http_client.get(args.url)
+            response.raise_for_status()
+            content = response.text
+
+            # Step 3: Extract Telegraph article content if applicable
+            if "telegra.ph" in args.url or "telegraph" in args.url.lower():
+                # Extract main article content from Telegraph HTML
+                match = re.search(
+                    r'<article[^>]*id="_tl_editor"[^>]*>(.*?)</article>',
+                    content,
+                    re.DOTALL | re.IGNORECASE,
+                )
+                if match:
+                    article_html = match.group(1)
+                    # Remove HTML tags for cleaner text
+                    article_text = re.sub(r"<[^>]+>", " ", article_html)
+                    # Clean up whitespace
+                    article_text = re.sub(r"\s+", " ", article_text).strip()
+                    content = f"📰 Telegraph Article from {args.url}\n\n{article_text}"
+                else:
+                    # Fallback: basic HTML cleaning
+                    content = re.sub(r"<[^>]+>", " ", content)
+                    content = re.sub(r"\s+", " ", content).strip()[:10000]
+
+            # Limit content length to avoid context overflow
+            if len(content) > 15000:
+                content = content[:15000] + "\n\n[Content truncated for length...]"
+
+            return [TextContent(type="text", text=f"✅ Content from {args.url}\n\n{content}")]
+
+        except httpx.HTTPError as e:
+            error_msg = f"Failed to fetch {args.url}: {str(e)}"
+            logger.error(error_msg)
+            return [TextContent(type="text", text=f"❌ {error_msg}")]
