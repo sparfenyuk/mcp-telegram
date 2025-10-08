@@ -155,3 +155,52 @@ async def list_messages(
                 response.append(TextContent(type="text", text=message.text))
 
     return response
+
+
+### DraftMessage ###
+
+
+class DraftMessage(ToolArgs):
+    """
+    Draft a message in a given dialog, chat or channel.
+
+    The message will be saved as a draft and can be sent later from the Telegram client.
+    If a draft already exists, it will be replaced with the new draft.
+    """
+
+    dialog_id: int
+    message: str
+
+
+@tool_runner.register
+async def draft_message(
+    args: DraftMessage,
+) -> t.Sequence[TextContent | ImageContent | EmbeddedResource]:
+    client: TelegramClient
+    logger.info("method[DraftMessage] args[%s]", args)
+
+    response: list[TextContent] = []
+    async with create_client() as client:
+        result = await client(functions.messages.GetPeerDialogsRequest(peers=[args.dialog_id]))
+        if not result:
+            raise ValueError(f"Dialog not found: {args.dialog_id}")
+
+        if not isinstance(result, types.messages.PeerDialogs):
+            raise TypeError(f"Unexpected result: {type(result)}")
+
+        # Save the draft message
+        await client(
+            functions.messages.SaveDraftRequest(
+                peer=args.dialog_id,
+                message=args.message,
+            )
+        )
+
+        response.append(
+            TextContent(
+                type="text",
+                text=f"Draft message saved successfully for dialog {args.dialog_id}",
+            )
+        )
+
+    return response
