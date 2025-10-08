@@ -36,15 +36,15 @@ The Model Context Protocol (MCP) is a system that lets AI apps, like Claude Desk
 
 ## What does this server do?
 
-As of not, the server provides read-only access to the Telegram API.
+As of now, the server provides access to the Telegram API for reading messages and drafting responses.
 
 - [x] Get the list of dialogs (chats, channels, groups)
 - [x] Get the list of (unread) messages in the given dialog
+- [x] Draft a message
 - [ ] Mark chanel as read
 - [ ] Retrieve messages by date and time
 - [ ] Download media files
 - [ ] Get the list of contacts
-- [ ] Draft a message
 - ...
 
 ## Practical use cases
@@ -61,7 +61,10 @@ As of not, the server provides read-only access to the Telegram API.
 
 ```bash
 uv tool install git+https://github.com/sparfenyuk/mcp-telegram
+# or from source
+uv tool install .
 ```
+
 
 > [!NOTE]
 > If you have already installed the server, you can update it using `uv tool upgrade --reinstall` command.
@@ -106,12 +109,11 @@ Configure Claude Desktop to recognize the Exa MCP server.
     {
       "mcpServers": {
         "mcp-telegram": {
-            "command": "mcp-server",
-            "env": {
-              "TELEGRAM_API_ID": "<your-api-id>",
-              "TELEGRAM_API_HASH": "<your-api-hash>",
-            },
-          }
+          "command": "mcp-server",
+          "env": {
+            "TELEGRAM_API_ID": "<your-api-id>",
+            "TELEGRAM_API_HASH": "<your-api-hash>",
+          },
         }
       }
     }
