@@ -155,3 +155,218 @@ async def list_messages(
                 response.append(TextContent(type="text", text=message.text))
 
     return response
+
+
+### SendMessage ###
+
+
+class SendMessage(ToolArgs):
+    """
+    Send a message to a contact, group, or channel.
+    
+    Use this tool to send text messages through Telegram.
+    """
+
+    dialog_id: int
+    message: str
+
+
+@tool_runner.register
+async def send_message(
+    args: SendMessage,
+) -> t.Sequence[TextContent | ImageContent | EmbeddedResource]:
+    client: TelegramClient
+    logger.info("method[SendMessage] args[%s]", args)
+
+    async with create_client() as client:
+        try:
+            # Send the message
+            sent_message = await client.send_message(args.dialog_id, args.message)
+            
+            response_text = (
+                f"Message sent successfully!\n"
+                f"Message ID: {sent_message.id}\n"
+                f"Date: {sent_message.date}\n"
+                f"To: {args.dialog_id}"
+            )
+            
+            return [TextContent(type="text", text=response_text)]
+        except Exception as e:
+            error_text = f"Failed to send message: {str(e)}"
+            logger.error(error_text)
+            return [TextContent(type="text", text=error_text)]
+
+
+### ScheduleMessage ###
+
+
+class ScheduleMessage(ToolArgs):
+    """
+    Schedule a message to be sent at a specific time using Telegram's native scheduling API.
+    
+    The message is added to Telegram's server-side schedule queue and will be automatically
+    sent at the specified time, even if your client is offline. This uses Telegram's official
+    scheduled messages API: https://core.telegram.org/api/scheduled-messages
+    
+    If schedule_date is less than 10 seconds in the future, the message will be sent immediately.
+    """
+
+    dialog_id: int
+    message: str
+    delay_seconds: int
+
+
+@tool_runner.register
+async def schedule_message(
+    args: ScheduleMessage,
+) -> t.Sequence[TextContent | ImageContent | EmbeddedResource]:
+    from datetime import datetime, timedelta
+    
+    client: TelegramClient
+    logger.info("method[ScheduleMessage] args[%s]", args)
+
+    if args.delay_seconds < 0:
+        return [TextContent(type="text", text="Error: delay_seconds must be a positive number")]
+
+    async with create_client() as client:
+        try:
+            # Calculate the schedule date (Unix timestamp)
+            schedule_time = datetime.now() + timedelta(seconds=args.delay_seconds)
+            schedule_timestamp = int(schedule_time.timestamp())
+            
+            logger.info(f"Scheduling message for {schedule_time} (timestamp: {schedule_timestamp})")
+            
+            # Use Telegram's native scheduling API
+            # The schedule_date parameter adds the message to server-side schedule queue
+            sent_message = await client.send_message(
+                args.dialog_id,
+                args.message,
+                schedule=schedule_timestamp
+            )
+            
+            # Format the response based on whether it was scheduled or sent immediately
+            if args.delay_seconds < 10:
+                response_text = (
+                    f"⚡ Message sent immediately (delay was less than 10 seconds)\n"
+                    f"Message ID: {sent_message.id}\n"
+                    f"Date: {sent_message.date}\n"
+                    f"To: {args.dialog_id}"
+                )
+            else:
+                response_text = (
+                    f"📅 Message scheduled successfully!\n"
+                    f"Scheduled Message ID: {sent_message.id}\n"
+                    f"Will be sent at: {schedule_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"To: {args.dialog_id}\n"
+                    f"Delay: {args.delay_seconds} seconds\n\n"
+                    f"Note: The message is stored on Telegram's servers and will be sent "
+                    f"automatically at the scheduled time, even if you're offline."
+                )
+            
+            return [TextContent(type="text", text=response_text)]
+        except Exception as e:
+            error_text = f"Failed to schedule message: {str(e)}"
+            logger.error(error_text)
+            return [TextContent(type="text", text=error_text)]
+
+
+### GetScheduledMessages ###
+
+
+class GetScheduledMessages(ToolArgs):
+    """
+    Get all scheduled messages for a specific chat from Telegram's schedule queue.
+    
+    This retrieves messages that were scheduled using ScheduleMessage or through the
+    Telegram app. You can see when they will be sent and their content.
+    """
+
+    dialog_id: int
+
+
+@tool_runner.register
+async def get_scheduled_messages(
+    args: GetScheduledMessages,
+) -> t.Sequence[TextContent | ImageContent | EmbeddedResource]:
+    client: TelegramClient
+    logger.info("method[GetScheduledMessages] args[%s]", args)
+
+    async with create_client() as client:
+        try:
+            # Get all scheduled messages for this chat
+            scheduled_messages = await client.get_messages(
+                args.dialog_id,
+                scheduled=True
+            )
+            
+            if not scheduled_messages:
+                return [TextContent(
+                    type="text",
+                    text=f"No scheduled messages found for dialog {args.dialog_id}"
+                )]
+            
+            # Format the response
+            response_lines = [f"📅 Scheduled Messages ({len(scheduled_messages)} total):\n"]
+            
+            for msg in scheduled_messages:
+                from datetime import datetime
+                schedule_time = datetime.fromtimestamp(msg.date.timestamp())
+                
+                response_lines.append(
+                    f"\n• Message ID: {msg.id}\n"
+                    f"  Scheduled for: {schedule_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"  Text: {msg.text[:100]}{'...' if len(msg.text) > 100 else ''}"
+                )
+            
+            return [TextContent(type="text", text="\n".join(response_lines))]
+            
+        except Exception as e:
+            error_text = f"Failed to get scheduled messages: {str(e)}"
+            logger.error(error_text)
+            return [TextContent(type="text", text=error_text)]
+
+
+### DeleteScheduledMessage ###
+
+
+class DeleteScheduledMessage(ToolArgs):
+    """
+    Cancel a scheduled message before it's sent.
+    
+    Use GetScheduledMessages to find the message ID, then use this tool to cancel it.
+    The message will be removed from Telegram's schedule queue and will not be sent.
+    """
+
+    dialog_id: int
+    message_id: int
+
+
+@tool_runner.register
+async def delete_scheduled_message(
+    args: DeleteScheduledMessage,
+) -> t.Sequence[TextContent | ImageContent | EmbeddedResource]:
+    client: TelegramClient
+    logger.info("method[DeleteScheduledMessage] args[%s]", args)
+
+    async with create_client() as client:
+        try:
+            # Delete the scheduled message
+            await client.delete_messages(
+                args.dialog_id,
+                message_ids=[args.message_id],
+                revoke=True  # This works for scheduled messages
+            )
+            
+            response_text = (
+                f"✅ Scheduled message cancelled successfully!\n"
+                f"Message ID: {args.message_id}\n"
+                f"Dialog: {args.dialog_id}\n\n"
+                f"The message has been removed from the schedule queue and will not be sent."
+            )
+            
+            return [TextContent(type="text", text=response_text)]
+            
+        except Exception as e:
+            error_text = f"Failed to delete scheduled message: {str(e)}"
+            logger.error(error_text)
+            return [TextContent(type="text", text=error_text)]
