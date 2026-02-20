@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import sys
 import typing as t
+from datetime import datetime, timezone
 from functools import singledispatch
 
 from mcp.types import (
@@ -110,11 +111,20 @@ class ListMessages(ToolArgs):
 
     If `limit` is set, only the last `limit` messages will be listed. If `unread` is set, the limit will be
     the minimum between the unread messages and the limit.
+
+    If `offset_date` is set (ISO 8601 string, e.g. "2026-02-20T07:53:50Z"), only messages sent before this
+    date are returned by default. Combine with `reverse=True` to get messages *after* the offset_date instead,
+    ordered from oldest to newest.
+
+    Each message is returned with metadata in the format:
+    [ISO_TIMESTAMP] (MESSAGE_ID) SenderName: message text
     """
 
     dialog_id: int
     unread: bool = False
     limit: int = 100
+    offset_date: str | None = None
+    reverse: bool = False
 
 
 @tool_runner.register
@@ -140,18 +150,48 @@ async def list_messages(
 
         iter_messages_args: dict[str, t.Any] = {
             "entity": args.dialog_id,
-            "reverse": False,
+            "reverse": args.reverse,
         }
         if args.unread:
             iter_messages_args["limit"] = min(dialog.unread_count, args.limit)
         else:
             iter_messages_args["limit"] = args.limit
 
+        if args.offset_date:
+            iter_messages_args["offset_date"] = datetime.fromisoformat(args.offset_date)
+
         logger.debug("iter_messages_args: %s", iter_messages_args)
+
+        sender_cache: dict[int, str] = {}
+
         async for message in client.iter_messages(**iter_messages_args):
             logger.debug("message: %s", type(message))
             if isinstance(message, custom.Message) and message.text:
                 logger.debug("message: %s", message.text)
-                response.append(TextContent(type="text", text=message.text))
+
+                sender_name = "Unknown"
+                sender_id = message.sender_id
+                if sender_id:
+                    if sender_id in sender_cache:
+                        sender_name = sender_cache[sender_id]
+                    else:
+                        sender = await message.get_sender()
+                        if sender:
+                            if hasattr(sender, "first_name"):
+                                sender_name = sender.first_name or ""
+                                if sender.last_name:
+                                    sender_name += f" {sender.last_name}"
+                            elif hasattr(sender, "title"):
+                                sender_name = sender.title or "Channel"
+                        sender_cache[sender_id] = sender_name
+
+                msg_date = message.date
+                if msg_date:
+                    ts = msg_date.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                else:
+                    ts = "unknown"
+
+                formatted = f"[{ts}] ({message.id}) {sender_name}: {message.text}"
+                response.append(TextContent(type="text", text=formatted))
 
     return response
