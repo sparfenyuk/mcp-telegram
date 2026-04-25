@@ -147,11 +147,37 @@ async def list_messages(
         else:
             iter_messages_args["limit"] = args.limit
 
-        logger.debug("iter_messages_args: %s", iter_messages_args)
-        async for message in client.iter_messages(**iter_messages_args):
-            logger.debug("message: %s", type(message))
-            if isinstance(message, custom.Message) and message.text:
-                logger.debug("message: %s", message.text)
-                response.append(TextContent(type="text", text=message.text))
+            logger.debug("iter_messages_args: %s", iter_messages_args)
+            async for message in client.iter_messages(**iter_messages_args):
+                logger.debug("message: %s", type(message))
+                if isinstance(message, custom.Message) and message.text:
+                    logger.debug("message: %s", message.text)
+
+                    sender = await message.get_sender()
+                    if sender is None:
+                        author = str(message.sender_id)
+                    elif isinstance(sender, types.User):
+                        name = " ".join(
+                            part
+                            for part in [
+                                sender.first_name,
+                                sender.last_name,
+                            ]
+                            if part
+                        ) or str(sender.id)
+
+                        username = f"@{sender.username}" if sender.username else None
+                        author = f"{name} ({username})" if username else name
+                    elif isinstance(sender, types.Chat | types.Channel):
+                        name = sender.title
+                        username = f"@{sender.username}" if getattr(sender, "username", None) else None
+                        author = f"{name} ({username})" if username else name
+                    else:
+                        author = str(message.sender_id)
+
+                    message_time = message.date.isoformat() if message.date else "unknown"
+
+                    msg = f"Author: {author}\nTime: {message_time}\nText: {message.text}"
+                    response.append(TextContent(type="text", text=msg))
 
     return response
